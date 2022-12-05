@@ -85,7 +85,7 @@ pipewrite(struct pipe *p, char *addr, int n)
         return -1;
       }
       wakeup(&p->nread);
-      sleep(&p->nwrite, &p->lock);  //DOC: pipewrite-sleep
+      sleep(&p->nwrite, &p->lock, 0);  //DOC: pipewrite-sleep
     }
     p->data[p->nwrite++ % PIPESIZE] = addr[i];
   }
@@ -105,7 +105,7 @@ piperead(struct pipe *p, char *addr, int n)
       release(&p->lock);
       return -1;
     }
-    sleep(&p->nread, &p->lock); //DOC: piperead-sleep
+    sleep(&p->nread, &p->lock, 0); //DOC: piperead-sleep
   }
   for(i = 0; i < n; i++){  //DOC: piperead-copy
     if(p->nread == p->nwrite)

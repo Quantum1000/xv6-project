@@ -104,11 +104,13 @@ void            pinit(void);
 void            procdump(void);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
-void            sleep(void*, struct spinlock*);
+void            sleep(void*, struct spinlock*, int);
 void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+int		settickets(int);
+int		getpinfo(struct pstat *);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

@@ -74,7 +74,7 @@ bget(uint dev, uint sector)
         release(&bcache.lock);
         return b;
       }
-      sleep(b, &bcache.lock);
+      sleep(b, &bcache.lock, 0);
       goto loop;
     }
   }

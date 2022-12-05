@@ -244,7 +244,7 @@ ilock(struct inode *ip)
 
   acquire(&icache.lock);
   while(ip->flags & I_BUSY)
-    sleep(ip, &icache.lock);
+    sleep(ip, &icache.lock, 0);
   ip->flags |= I_BUSY;
   release(&icache.lock);
 

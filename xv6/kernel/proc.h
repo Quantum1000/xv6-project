@@ -71,6 +71,9 @@ struct proc {
   struct context *context;     // swtch() here to run process
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
+  int tickets;		       // Used for lotto scheduler run probability
+  int ticks;		       // Number of times scheduled
+  int sleept;		       // Number of ticks to sleep
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)

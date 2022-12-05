@@ -234,7 +234,7 @@ consoleread(struct inode *ip, char *dst, int n)
         ilock(ip);
         return -1;
       }
-      sleep(&input.r, &input.lock);
+      sleep(&input.r, &input.lock, 0);
     }
     c = input.buf[input.r++ % INPUT_BUF];
     if(c == C('D')){  // EOF

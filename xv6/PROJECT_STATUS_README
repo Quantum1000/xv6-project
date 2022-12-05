@@ -1,0 +1,6 @@
+Currently completed:
+	Implementation of lottery scheduler
+	Implementation of settickets syscall
+        Implement getpinfo syscall
+	Make graphing utlity
+	Test lottery scheduler

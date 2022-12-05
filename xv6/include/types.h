@@ -1,4 +1,5 @@
 #ifndef _TYPES_H_
+#include "pstat.h"
 #define _TYPES_H_
 
 // Type definitions

@@ -5,6 +5,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
@@ -45,6 +46,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->tickets = 1;
+  p->ticks = 0;
   release(&ptable.lock);
 
   // Allocate kernel stack if possible.
@@ -143,6 +146,8 @@ fork(void)
   }
   np->sz = proc->sz;
   np->parent = proc;
+  np->tickets = proc->tickets;
+  np->ticks = 0;
   *np->tf = *proc->tf;
 
   // Clear %eax so that fork returns 0 in the child.
@@ -241,8 +246,44 @@ wait(void)
     }
 
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
-    sleep(proc, &ptable.lock);  //DOC: wait-sleep
+    sleep(proc, &ptable.lock, 0);  //DOC: wait-sleep
   }
+}
+
+uint
+schedrng(uint totaltickets)
+{
+  // murmurhash values
+  uint c1 = 0xcc9e2d51;
+  uint c2 = 0x1b873593;
+  uint r1 = 15;
+  uint r2 = 13;
+  uint n = 0xe6545b64;
+  uint h = (uint)ticks;
+  uint max = 0xffffffff;
+  //simple murmurhash derivative random number generator
+  uint k = (uint)ticks;
+  k *= c1;
+  k = (k << r1) | (k >> (32 - r1));
+  k *= c2;
+  h ^= k;
+  h = (h << r2) | (h >> (32 - r2));
+  h = h * 5 + n;
+  h ^= (h >> 16);
+  h *= 0x85ebca6b;
+  h ^= (h >> 13);
+  h *= 0xc2b2ae35;
+  h ^= (h >> 16);
+  //since h is a random number between 0xffffffff and 0, dividing it by max
+  //will result in some number between 0 and 1, which can then
+  //be multiplied by totaltickets to get some number in the desired range,
+  //between 0 and totaltickets. To allow use of integer arithmetic, these operations
+  //are reordered
+  uint winningticket = h;
+  winningticket /= 65536;
+  winningticket = winningticket * (totaltickets + 1);
+  winningticket = winningticket / (max / 65536);
+  return winningticket;
 }
 
 // Per-CPU process scheduler.
@@ -263,25 +304,43 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+    uint totaltickets = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      if(p->state == RUNNABLE)
+      {
+        totaltickets += p->tickets;
+      }
+    }
+    uint winningticket = schedrng(totaltickets);
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      if(p->state == RUNNABLE)
+      {
+        if((uint)p->tickets < winningticket)
+	{
+	  winningticket -= (uint)p->tickets;
+	}
+	else
+	{
+          // Switch to chosen process.  It is the process's job
+          // to release ptable.lock and then reacquire it
+          // before jumping back to us.
+          proc = p;
+          switchuvm(p);
+          p->state = RUNNING;
+          p->ticks++;
+          swtch(&cpu->scheduler, proc->context);
+          switchkvm();
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          proc = 0;
+          break;
+	}
+      }
     }
     release(&ptable.lock);
-
   }
 }
 
@@ -329,7 +388,7 @@ forkret(void)
 // Atomically release lock and sleep on chan.
 // Reacquires lock when awakened.
 void
-sleep(void *chan, struct spinlock *lk)
+sleep(void *chan, struct spinlock *lk, int t)
 {
   if(proc == 0)
     panic("sleep");
@@ -349,6 +408,7 @@ sleep(void *chan, struct spinlock *lk)
   }
 
   // Go to sleep.
+  proc->sleept = t;
   proc->chan = chan;
   proc->state = SLEEPING;
   sched();
@@ -372,7 +432,13 @@ wakeup1(void *chan)
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == SLEEPING && p->chan == chan)
-      p->state = RUNNABLE;
+    {
+      if(p->sleept <= 0)
+        p->state = RUNNABLE;
+      else
+        p->sleept--;
+    }
+
 }
 
 // Wake up all processes sleeping on chan.
@@ -443,4 +509,37 @@ procdump(void)
   }
 }
 
+int
+settickets(int n)
+{
+  acquire(&ptable.lock);
+  if(proc == 0)
+    panic("settickets");
+  if(n < 1)
+    goto failure;
+  else
+  {
+    proc->tickets = n;
+  }
+  release(&ptable.lock);
+  return 0;
+  failure:
+  release(&ptable.lock);
+  return -1;
+}
 
+int
+getpinfo(struct pstat *ps)
+{
+  struct proc *p;
+  int i = 0;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    ps->inuse[i] = p->state;
+    ps->tickets[i] = p->tickets;
+    ps->pid[i] = p->pid;
+    ps->ticks[i] = p->ticks;
+    i++;
+  }
+  return 0;
+}
